@@ -23,6 +23,13 @@
         td { border-bottom: 1px solid #eee; padding: 12px; font-size: 0.95em; }
         tr:hover { background-color: #f9fdfa; }
         .no-result { text-align: center; padding: 50px; color: #999; }
+
+        /* 페이지네이션 스타일 */
+        .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; flex-wrap: wrap; }
+        .pagination button { padding: 8px 12px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 4px; }
+        .pagination button.active { background: #27ae60; color: white; border-color: #27ae60; font-weight: bold; }
+        .pagination button:hover:not(.active) { background: #f0f0f0; }
+        .pagination button:disabled { color: #ccc; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -41,7 +48,7 @@
             <option value="저자">저자</option>
             <option value="출판사">출판사</option>
         </select>
-        <input type="text" id="searchInput" placeholder="찾으시는 도서명이나 저자를 입력하세요" onkeyup="filterBooks()">
+        <input type="text" id="searchInput" placeholder="찾으시는 도서명이나 저자를 입력하세요" onkeyup="handleSearch()">
     </div>
 
     <table>
@@ -52,71 +59,91 @@
                 <th style="width: 30%;">출판사</th>
             </tr>
         </thead>
-        <tbody id="bookTableBody">
-            </tbody>
+        <tbody id="bookTableBody"></tbody>
     </table>
 
+    <div id="pagination" class="pagination"></div>
+
     <script>
-        // 요청하신 상세 주소 적용
         const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQl3SnVcB_YTLmDvdDostT9OEBt2oBo0i4pKT6UxNI0iB2ItCKEtFBeAU4Dzl9uZ23ddj_kdsC7IFo0/pub?gid=0&single=true&output=csv';
 
-        let bookData = [];
+        let bookData = []; // 전체 데이터
+        let filteredData = []; // 검색된 데이터
+        let currentPage = 1;
+        const rowsPerPage = 10; // 한 페이지에 보여줄 개수
 
         function loadData() {
-            // 캐시 방지를 위해 랜덤 파라미터 추가
             const finalUrl = SHEETS_CSV_URL + '&t=' + new Date().getTime();
-
             Papa.parse(finalUrl, {
                 download: true,
                 header: true,
                 skipEmptyLines: 'greedy',
                 complete: function(results) {
-                    console.log("불러온 데이터:", results.data);
                     bookData = results.data;
-                    renderBooks(bookData);
+                    filteredData = [...bookData];
+                    displayPage(1);
                     document.getElementById('loadingStatus').style.display = 'none';
                 },
                 error: function(err) {
-                    console.error("에러 발생:", err);
-                    document.getElementById('statusArea').innerHTML = `
-                        <div class="error">
-                            ❌ 데이터를 불러오지 못했습니다.<br>
-                            개인 PC에서 파일을 직접 열면 보안상 차단될 수 있습니다.<br>
-                            설정: <b>파일 > 공유 > 웹에 게시 > CSV 형식</b>으로 게시되었는지 확인해 주세요.
-                        </div>`;
+                    document.getElementById('statusArea').innerHTML = `<div class="error">❌ 데이터를 불러오지 못했습니다.</div>`;
                 }
             });
         }
 
-        function renderBooks(data) {
+        // 특정 페이지의 데이터를 화면에 출력
+        function displayPage(page) {
+            currentPage = page;
             const tbody = document.getElementById('bookTableBody');
             tbody.innerHTML = '';
 
-            if (!data || data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="no-result">도서 목록이 비어 있습니다.</td></tr>';
+            const start = (page - 1) * rowsPerPage;
+            const end = start + rowsPerPage;
+            const paginatedItems = filteredData.slice(start, end);
+
+            if (paginatedItems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="no-result">결과가 없습니다.</td></tr>';
+                renderPagination(0);
                 return;
             }
 
-            data.forEach(book => {
-                // 시트의 컬럼명(첫 줄)이 '서명', '저자', '출판사'여야 합니다.
+            paginatedItems.forEach(book => {
                 const title = book['서명'] || Object.values(book)[0] || '-';
                 const author = book['저자'] || Object.values(book)[1] || '-';
                 const publisher = book['출판사'] || Object.values(book)[2] || '-';
 
-                const row = `<tr>
-                    <td>${title}</td>
-                    <td>${author}</td>
-                    <td>${publisher}</td>
-                </tr>`;
-                tbody.innerHTML += row;
+                tbody.innerHTML += `<tr><td>${title}</td><td>${author}</td><td>${publisher}</td></tr>`;
             });
+
+            renderPagination(filteredData.length);
         }
 
-        function filterBooks() {
+        // 페이지네이션 버튼 생성
+        function renderPagination(totalItems) {
+            const paginationEl = document.getElementById('pagination');
+            paginationEl.innerHTML = '';
+
+            const pageCount = Math.ceil(totalItems / rowsPerPage);
+            if (pageCount <= 1) return;
+
+            // 페이지 버튼 생성 (최대 5개씩만 보이게 설정 가능)
+            for (let i = 1; i <= pageCount; i++) {
+                const btn = document.createElement('button');
+                btn.innerText = i;
+                if (i === currentPage) btn.classList.add('active');
+                btn.onclick = () => {
+                    displayPage(i);
+                    window.scrollTo(0, 0); // 페이지 이동 시 상단으로 이동
+                };
+                paginationEl.appendChild(btn);
+            }
+        }
+
+        // 검색 처리
+        function handleSearch() {
             const input = document.getElementById('searchInput').value.toLowerCase();
             const type = document.getElementById('searchType').value;
             
-            const filtered = bookData.filter(book => {
+            filteredData = bookData.filter(book => {
                 const title = String(book['서명'] || Object.values(book)[0] || '').toLowerCase();
                 const author = String(book['저자'] || Object.values(book)[1] || '').toLowerCase();
                 const publisher = String(book['출판사'] || Object.values(book)[2] || '').toLowerCase();
@@ -128,7 +155,7 @@
                 else if (type === '출판사') return publisher.includes(input);
             });
             
-            renderBooks(filtered);
+            displayPage(1); // 검색 시 항상 1페이지부터 보여줌
         }
 
         loadData();
