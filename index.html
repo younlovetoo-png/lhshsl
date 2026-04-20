@@ -24,12 +24,14 @@
         tr:hover { background-color: #f9fdfa; }
         .no-result { text-align: center; padding: 50px; color: #999; }
 
-        /* 페이지네이션 스타일 */
-        .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 20px; flex-wrap: wrap; }
-        .pagination button { padding: 8px 12px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 4px; }
-        .pagination button.active { background: #27ae60; color: white; border-color: #27ae60; font-weight: bold; }
-        .pagination button:hover:not(.active) { background: #f0f0f0; }
-        .pagination button:disabled { color: #ccc; cursor: not-allowed; }
+        /* 이미지 스타일의 페이지네이션 디자인 */
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 30px; margin-bottom: 50px; }
+        .pagination button { width: 36px; height: 36px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9em; color: #666; transition: 0.2s; }
+        .pagination button.active { background: #666; color: white; border-color: #666; font-weight: bold; }
+        .pagination button:hover:not(.active):not(:disabled) { border-color: #999; color: #333; }
+        .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
+        .pagination .dots { color: #999; margin: 0 5px; }
+        .page-info { margin-top: 10px; text-align: center; font-size: 0.85em; color: #888; }
     </style>
 </head>
 <body>
@@ -63,34 +65,33 @@
     </table>
 
     <div id="pagination" class="pagination"></div>
+    <div id="pageInfo" class="page-info"></div>
 
     <script>
         const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQl3SnVcB_YTLmDvdDostT9OEBt2oBo0i4pKT6UxNI0iB2ItCKEtFBeAU4Dzl9uZ23ddj_kdsC7IFo0/pub?gid=0&single=true&output=csv';
 
-        let bookData = []; // 전체 데이터
-        let filteredData = []; // 검색된 데이터
+        let bookData = []; 
+        let filteredData = []; 
         let currentPage = 1;
-        const rowsPerPage = 10; // 한 페이지에 보여줄 개수
+        const rowsPerPage = 20; 
+        const showPageCount = 5; // 현재 페이지 앞뒤로 보여줄 최대 번호 개수
 
         function loadData() {
             const finalUrl = SHEETS_CSV_URL + '&t=' + new Date().getTime();
             Papa.parse(finalUrl, {
-                download: true,
-                header: true,
-                skipEmptyLines: 'greedy',
+                download: true, header: true, skipEmptyLines: 'greedy',
                 complete: function(results) {
                     bookData = results.data;
                     filteredData = [...bookData];
                     displayPage(1);
                     document.getElementById('loadingStatus').style.display = 'none';
                 },
-                error: function(err) {
+                error: function() {
                     document.getElementById('statusArea').innerHTML = `<div class="error">❌ 데이터를 불러오지 못했습니다.</div>`;
                 }
             });
         }
 
-        // 특정 페이지의 데이터를 화면에 출력
         function displayPage(page) {
             currentPage = page;
             const tbody = document.getElementById('bookTableBody');
@@ -102,7 +103,8 @@
 
             if (paginatedItems.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="no-result">결과가 없습니다.</td></tr>';
-                renderPagination(0);
+                document.getElementById('pagination').innerHTML = '';
+                document.getElementById('pageInfo').innerText = '';
                 return;
             }
 
@@ -110,54 +112,93 @@
                 const title = book['서명'] || Object.values(book)[0] || '-';
                 const author = book['저자'] || Object.values(book)[1] || '-';
                 const publisher = book['출판사'] || Object.values(book)[2] || '-';
-
                 tbody.innerHTML += `<tr><td>${title}</td><td>${author}</td><td>${publisher}</td></tr>`;
             });
 
             renderPagination(filteredData.length);
         }
 
-        // 페이지네이션 버튼 생성
-        function renderPagination(totalItems) {
-            const paginationEl = document.getElementById('pagination');
-            paginationEl.innerHTML = '';
-
-            const pageCount = Math.ceil(totalItems / rowsPerPage);
-            if (pageCount <= 1) return;
-
-            // 페이지 버튼 생성 (최대 5개씩만 보이게 설정 가능)
-            for (let i = 1; i <= pageCount; i++) {
-                const btn = document.createElement('button');
-                btn.innerText = i;
-                if (i === currentPage) btn.classList.add('active');
-                btn.onclick = () => {
-                    displayPage(i);
-                    window.scrollTo(0, 0); // 페이지 이동 시 상단으로 이동
-                };
-                paginationEl.appendChild(btn);
-            }
+        function createPageBtn(text, page, isActive = false, isDisabled = false) {
+            const btn = document.createElement('button');
+            btn.innerHTML = text;
+            if (isActive) btn.classList.add('active');
+            btn.disabled = isDisabled;
+            btn.onclick = () => {
+                displayPage(page);
+                window.scrollTo(0, 0);
+            };
+            return btn;
         }
 
-        // 검색 처리
+        function renderPagination(totalItems) {
+            const paginationEl = document.getElementById('pagination');
+            const pageInfoEl = document.getElementById('pageInfo');
+            paginationEl.innerHTML = '';
+
+            const totalPages = Math.ceil(totalItems / rowsPerPage);
+            if (totalPages <= 1) {
+                pageInfoEl.innerText = `총 ${totalItems}권`;
+                return;
+            }
+
+            // 이전 버튼
+            paginationEl.appendChild(createPageBtn('&lt;', Math.max(currentPage - 1, 1), false, currentPage === 1));
+
+            // 페이지 로직: 현재 페이지 기준으로 앞뒤 showPageCount 범위만 노출
+            let start = Math.max(currentPage - Math.floor(showPageCount / 2), 1);
+            let end = Math.min(start + showPageCount - 1, totalPages);
+            
+            if (end - start + 1 < showPageCount) {
+                start = Math.max(end - showPageCount + 1, 1);
+            }
+
+            // 첫 페이지가 범위 밖이면 '1'과 '...' 표시
+            if (start > 1) {
+                paginationEl.appendChild(createPageBtn('1', 1));
+                if (start > 2) {
+                    const dots = document.createElement('span');
+                    dots.className = 'dots';
+                    dots.innerText = '...';
+                    paginationEl.appendChild(dots);
+                }
+            }
+
+            // 숫자 버튼
+            for (let i = start; i <= end; i++) {
+                paginationEl.appendChild(createPageBtn(i, i, i === currentPage));
+            }
+
+            // 마지막 페이지가 범위 밖이면 '...'과 '마지막번호' 표시
+            if (end < totalPages) {
+                if (end < totalPages - 1) {
+                    const dots = document.createElement('span');
+                    dots.className = 'dots';
+                    dots.innerText = '...';
+                    paginationEl.appendChild(dots);
+                }
+                paginationEl.appendChild(createPageBtn(totalPages, totalPages));
+            }
+
+            // 다음 버튼
+            paginationEl.appendChild(createPageBtn('&gt;', Math.min(currentPage + 1, totalPages), false, currentPage === totalPages));
+
+            pageInfoEl.innerText = `총 ${totalItems}권 | ${currentPage} / ${totalPages} 페이지`;
+        }
+
         function handleSearch() {
             const input = document.getElementById('searchInput').value.toLowerCase();
             const type = document.getElementById('searchType').value;
-            
             filteredData = bookData.filter(book => {
                 const title = String(book['서명'] || Object.values(book)[0] || '').toLowerCase();
                 const author = String(book['저자'] || Object.values(book)[1] || '').toLowerCase();
                 const publisher = String(book['출판사'] || Object.values(book)[2] || '').toLowerCase();
-
-                if (type === 'all') {
-                    return title.includes(input) || author.includes(input) || publisher.includes(input);
-                } else if (type === '서명') return title.includes(input);
+                if (type === 'all') return title.includes(input) || author.includes(input) || publisher.includes(input);
+                else if (type === '서명') return title.includes(input);
                 else if (type === '저자') return author.includes(input);
                 else if (type === '출판사') return publisher.includes(input);
             });
-            
-            displayPage(1); // 검색 시 항상 1페이지부터 보여줌
+            displayPage(1); 
         }
-
         loadData();
     </script>
 </body>
